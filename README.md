@@ -2,8 +2,7 @@ Go Sandbox
 ----------
 
 
-Packages problem: 
-================
+### Packages problem: 
 
 When running tests: 
 ```
