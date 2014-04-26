@@ -9,12 +9,12 @@ import (
 var _ = Describe("Importing packages", func() {
 	Describe("Create struct from package", func() {
 		sample := &gosandbox.SampleStruct{
-			name: "John",
-			id:   1,
+			Name: "John",
+			Id:   1,
 		}
 
 		It("should have name", func() {
-			Expect(sample.name).To(Equal("John"))
+			Expect(sample.Name).To(Equal("John"))
 		})
 
 	})
