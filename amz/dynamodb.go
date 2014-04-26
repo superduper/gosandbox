@@ -5,6 +5,7 @@ import (
 	"github.com/crowdmob/goamz/aws"
 	"github.com/crowdmob/goamz/dynamodb"
 	"github.com/superduper/glog"
+	"github.com/superduper/goannoying"
 	"github.com/superduper/gocontract"
 	"time"
 )
@@ -80,43 +81,10 @@ func (self *TDynamoDBStore) findTableByName(name string) bool {
 	return false
 }
 
-func WaitUntil(name string, condition func() (bool, error), conditionCheckInterval time.Duration, conditionTimeoutInterval time.Duration) {
-	done := make(chan bool)
-	timeout := time.After(conditionTimeoutInterval)
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			default:
-				glog.Infof("Checking condition: %s", name)
-				ok, err := condition()
-				if err != nil {
-					glog.Fatalf("Condition check error %v", err)
-				}
-				if ok {
-					glog.Infof("Condition: %s is satisfied", name)
-					done <- true
-					return
-				}
-				glog.Infof("Condition: %s is not satisfied, sleeping for %v", name, conditionCheckInterval)
-				time.Sleep(conditionCheckInterval)
-			}
-		}
-	}()
-	select {
-	case <-done:
-		break
-	case <-timeout:
-		glog.Errorf("Condition %s timed out after %v", name, conditionTimeoutInterval)
-		close(done)
-	}
-}
-
 func (self *TDynamoDBStore) waitUntilTableIsActive(table string) {
 	checkTimeout, _ := time.ParseDuration(TableCreateCheckTimeout)
 	checkInterval, _ := time.ParseDuration(TableCreateCheckPollInterval)
-	WaitUntil("table active", func() (status bool, err error) {
+	ok, err := annoying.WaitUntil("table active", func() (status bool, err error) {
 		status = false
 		desc, err := self.dynamoServer.DescribeTable(table)
 		if err != nil {
@@ -128,6 +96,9 @@ func (self *TDynamoDBStore) waitUntilTableIsActive(table string) {
 		}
 		return
 	}, checkInterval, checkTimeout)
+	if !ok {
+		glog.Fatalf("Failed with: %s", err.Error())
+	}
 }
 
 func (self *TDynamoDBStore) InitTable() {
@@ -136,15 +107,22 @@ func (self *TDynamoDBStore) InitTable() {
 	tableExists := self.findTableByName(newTableDesc.TableName)
 	if tableExists {
 		glog.Infof("Table %s exists, skipping init", newTableDesc.TableName)
+		glog.Infof("Waiting until table %s becomes active", newTableDesc.TableName)
+		self.waitUntilTableIsActive(newTableDesc.TableName)
+		glog.Infof("Table %s is active", newTableDesc.TableName)
 		return
 	} else {
+		glog.Infof("Creating table %s", newTableDesc.TableName)
 		status, err := self.dynamoServer.CreateTable(newTableDesc)
 		contract.RequireNoError(err)
 		if status == TableStatusCreating {
+			glog.Infof("Waiting until table %s becomes active", newTableDesc.TableName)
 			self.waitUntilTableIsActive(newTableDesc.TableName)
+			glog.Infof("Table %s is active", newTableDesc.TableName)
 			return
 		}
 		if status == TableStatusActive {
+			glog.Infof("Table %s is active", newTableDesc.TableName)
 			return
 		}
 		glog.Fatal("Unexpected status:", status)
@@ -238,7 +216,7 @@ func StringAttr(name, value string) dynamodb.Attribute {
 
 func main() {
 	var cfg Config
-	err := gcfg.ReadFileInto(&cfg, "dynamodb.gcfg")
+	err := gcfg.ReadFileInto(&cfg, "dynamodb.gcfg.local")
 	if err != nil {
 		glog.Fatal(err)
 	}
